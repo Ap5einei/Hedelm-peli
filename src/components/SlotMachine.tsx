@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { spinReels, type Symbol, type ReelSet, type GameStats, calculateRTP, getAllSymbols } from "@/lib/gameEngine";
+import { spinReels, type Symbol, type ReelSet, type GameStats, calculateRTP, getAllSymbols, type WinLine } from "@/lib/gameEngine";
 import { toast } from "sonner";
-import { Coins, TrendingUp, BarChart3, Zap } from "lucide-react";
+import { Coins, TrendingUp, BarChart3, Zap, Euro } from "lucide-react";
+import { WinLineOverlay } from "./WinLineOverlay";
 
 const INITIAL_REELS: ReelSet = [
   ['🍒', '🍋', '🍊'],
@@ -15,11 +16,12 @@ const INITIAL_REELS: ReelSet = [
 
 export const SlotMachine = () => {
   const [reels, setReels] = useState<ReelSet>(INITIAL_REELS);
-  const [balance, setBalance] = useState(1000);
-  const [betAmount, setBetAmount] = useState(5);
+  const [balance, setBalance] = useState(100.00);
+  const [betAmount, setBetAmount] = useState(0.50);
   const [isSpinning, setIsSpinning] = useState(false);
   const [lastWin, setLastWin] = useState(0);
   const [winningLines, setWinningLines] = useState<number[]>([]);
+  const [activeWinLines, setActiveWinLines] = useState<WinLine[]>([]);
   const [stats, setStats] = useState<GameStats>({
     totalSpins: 0,
     totalWagered: 0,
@@ -27,18 +29,27 @@ export const SlotMachine = () => {
     rtp: 0
   });
 
+  const formatEuro = (amount: number) => {
+    return new Intl.NumberFormat('fi-FI', {
+      style: 'currency',
+      currency: 'EUR',
+      minimumFractionDigits: 2,
+    }).format(amount);
+  };
+
   const handleSpin = async () => {
     if (balance < betAmount) {
-      toast.error("Insufficient balance!");
+      toast.error("Ei tarpeeksi saldoa!");
       return;
     }
 
     if (isSpinning) return;
 
     setIsSpinning(true);
-    setBalance(prev => prev - betAmount);
+    setBalance(prev => parseFloat((prev - betAmount).toFixed(2)));
     setLastWin(0);
     setWinningLines([]);
+    setActiveWinLines([]);
 
     // Animate spinning with random symbols
     const allSymbols = getAllSymbols();
@@ -62,26 +73,27 @@ export const SlotMachine = () => {
       setReels(result.reels);
       
       if (result.isWin) {
-        setBalance(prev => prev + result.winAmount);
+        setBalance(prev => parseFloat((prev + result.winAmount).toFixed(2)));
         setLastWin(result.winAmount);
         setWinningLines(result.winLines.map(w => w.line));
+        setActiveWinLines(result.winLines);
         
         const lineText = result.winLines.length === 1 
-          ? `Line ${result.winLines[0].line}` 
-          : `${result.winLines.length} lines`;
+          ? `Linja ${result.winLines[0].line}` 
+          : `${result.winLines.length} linjaa`;
         
-        toast.success(`${lineText} - Won ${result.winAmount} coins!`, {
-          duration: 3000,
+        toast.success(`🎉 ${lineText} - Voitit ${formatEuro(result.winAmount)}!`, {
+          duration: 4000,
         });
       } else {
-        toast.info("No win this time. Try again!");
+        toast.info("Ei voittoa. Yritä uudelleen!");
       }
 
       // Update stats
       const newStats = {
         totalSpins: stats.totalSpins + 1,
-        totalWagered: stats.totalWagered + betAmount,
-        totalWon: stats.totalWon + result.winAmount,
+        totalWagered: parseFloat((stats.totalWagered + betAmount).toFixed(2)),
+        totalWon: parseFloat((stats.totalWon + result.winAmount).toFixed(2)),
         rtp: 0
       };
       newStats.rtp = calculateRTP(newStats);
@@ -92,8 +104,16 @@ export const SlotMachine = () => {
   };
 
   const adjustBet = (amount: number) => {
-    const newBet = Math.max(1, Math.min(100, betAmount + amount));
+    const newBet = Math.max(0.10, Math.min(10.00, parseFloat((betAmount + amount).toFixed(2))));
     setBetAmount(newBet);
+  };
+
+  // Check if a symbol position is part of winning lines
+  const isWinningPosition = (reelIndex: number, rowIndex: number): boolean => {
+    return activeWinLines.some(winLine => {
+      const linePositions = winLine.positions;
+      return linePositions[reelIndex] === rowIndex;
+    });
   };
 
   return (
@@ -103,11 +123,11 @@ export const SlotMachine = () => {
         <Card className="p-4 bg-card border-border backdrop-blur-sm">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
-              <Coins className="w-5 h-5 text-secondary" />
+              <Euro className="w-5 h-5 text-secondary" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Balance</p>
-              <p className="text-2xl font-bold text-foreground">{balance}</p>
+              <p className="text-sm text-muted-foreground">Saldo</p>
+              <p className="text-2xl font-bold text-foreground">{formatEuro(balance)}</p>
             </div>
           </div>
         </Card>
@@ -118,8 +138,8 @@ export const SlotMachine = () => {
               <TrendingUp className="w-5 h-5 text-success" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Total Won</p>
-              <p className="text-2xl font-bold text-success">{stats.totalWon}</p>
+              <p className="text-sm text-muted-foreground">Voitettu</p>
+              <p className="text-2xl font-bold text-success">{formatEuro(stats.totalWon)}</p>
             </div>
           </div>
         </Card>
@@ -158,51 +178,53 @@ export const SlotMachine = () => {
                 className={`
                   px-3 py-1 rounded-full text-xs font-bold transition-all
                   ${winningLines.includes(line)
-                    ? 'bg-secondary text-background animate-pulse-win'
+                    ? 'bg-secondary text-background animate-pulse shadow-[0_0_10px_rgba(251,191,36,0.5)]'
                     : 'bg-muted/30 text-muted-foreground'
                   }
                 `}
               >
-                Line {line}
+                Linja {line}
               </div>
             ))}
           </div>
 
-          {/* Reels - 5x3 Grid */}
+          {/* Reels - 5x3 Grid with Win Line Overlays */}
           <div className="relative">
-            {/* Win line overlays */}
-            <div className="absolute inset-0 pointer-events-none">
-              {winningLines.includes(1) && (
-                <div className="absolute top-1/2 left-0 right-0 h-1 bg-secondary/50 -translate-y-1/2" />
-              )}
-              {winningLines.includes(2) && (
-                <div className="absolute top-[16.66%] left-0 right-0 h-1 bg-secondary/50" />
-              )}
-              {winningLines.includes(3) && (
-                <div className="absolute bottom-[16.66%] left-0 right-0 h-1 bg-secondary/50" />
-              )}
-            </div>
+            {/* Win line visual overlays */}
+            {[1, 2, 3, 4, 5].map((lineNum) => (
+              <WinLineOverlay
+                key={lineNum}
+                lineNumber={lineNum}
+                isActive={winningLines.includes(lineNum)}
+              />
+            ))}
 
             <div className="flex justify-center gap-1 md:gap-2">
               {reels.map((reel, reelIndex) => (
                 <div key={reelIndex} className="flex flex-col gap-1 md:gap-2">
-                  {reel.map((symbol, rowIndex) => (
-                    <div
-                      key={`${reelIndex}-${rowIndex}`}
-                      className={`
-                        w-14 h-14 md:w-20 md:h-20 flex items-center justify-center
-                        text-3xl md:text-5xl
-                        bg-gradient-to-br from-muted to-muted/50
-                        border-2 border-border rounded-lg md:rounded-xl
-                        shadow-lg
-                        ${isSpinning ? 'animate-pulse' : ''}
-                        ${lastWin > 0 && !isSpinning ? 'ring-2 ring-secondary' : ''}
-                        transition-all duration-200
-                      `}
-                    >
-                      {symbol}
-                    </div>
-                  ))}
+                  {reel.map((symbol, rowIndex) => {
+                    const isWinning = isWinningPosition(reelIndex, rowIndex);
+                    return (
+                      <div
+                        key={`${reelIndex}-${rowIndex}`}
+                        className={`
+                          w-14 h-14 md:w-20 md:h-20 flex items-center justify-center
+                          text-3xl md:text-5xl
+                          bg-gradient-to-br from-muted to-muted/50
+                          border-2 rounded-lg md:rounded-xl
+                          shadow-lg
+                          transition-all duration-300
+                          ${isSpinning ? 'animate-pulse border-border' : ''}
+                          ${isWinning && !isSpinning 
+                            ? 'ring-4 ring-secondary border-secondary animate-pulse-win shadow-[0_0_20px_rgba(251,191,36,0.6)]' 
+                            : 'border-border'
+                          }
+                        `}
+                      >
+                        {symbol}
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
             </div>
@@ -210,11 +232,11 @@ export const SlotMachine = () => {
 
           {/* Last Win Display */}
           {lastWin > 0 && (
-            <div className="text-center">
-              <div className="inline-flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 bg-gradient-to-r from-secondary to-accent rounded-full">
-                <Zap className="w-5 h-5 md:w-6 md:h-6 text-background" />
+            <div className="text-center animate-fade-in">
+              <div className="inline-flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 bg-gradient-to-r from-secondary to-accent rounded-full shadow-[0_0_30px_rgba(251,191,36,0.5)]">
+                <Zap className="w-5 h-5 md:w-6 md:h-6 text-background animate-pulse" />
                 <p className="text-xl md:text-2xl font-bold text-background">
-                  WIN: {lastWin} coins!
+                  VOITTO: {formatEuro(lastWin)}
                 </p>
               </div>
             </div>
@@ -223,26 +245,26 @@ export const SlotMachine = () => {
           {/* Bet Controls */}
           <div className="flex items-center justify-center gap-3 md:gap-4">
             <Button
-              onClick={() => adjustBet(-5)}
+              onClick={() => adjustBet(-0.25)}
               variant="outline"
               size="lg"
               disabled={isSpinning}
               className="border-primary/50 hover:border-primary hover:bg-primary/10"
             >
-              -5
+              -0.25€
             </Button>
             <div className="text-center min-w-[100px] md:min-w-[120px]">
               <p className="text-xs md:text-sm text-muted-foreground">Panos</p>
-              <p className="text-2xl md:text-3xl font-bold text-secondary">{betAmount}</p>
+              <p className="text-2xl md:text-3xl font-bold text-secondary">{formatEuro(betAmount)}</p>
             </div>
             <Button
-              onClick={() => adjustBet(5)}
+              onClick={() => adjustBet(0.25)}
               variant="outline"
               size="lg"
               disabled={isSpinning}
               className="border-primary/50 hover:border-primary hover:bg-primary/10"
             >
-              +5
+              +0.25€
             </Button>
           </div>
 
@@ -267,12 +289,12 @@ export const SlotMachine = () => {
               </div>
               <div>
                 <p className="text-xs md:text-sm text-muted-foreground">Panostettu</p>
-                <p className="text-lg md:text-xl font-bold text-foreground">{stats.totalWagered}</p>
+                <p className="text-lg md:text-xl font-bold text-foreground">{formatEuro(stats.totalWagered)}</p>
               </div>
               <div>
                 <p className="text-xs md:text-sm text-muted-foreground">Voitto/Tappio</p>
                 <p className={`text-lg md:text-xl font-bold ${stats.totalWon - stats.totalWagered >= 0 ? 'text-success' : 'text-destructive'}`}>
-                  {stats.totalWon - stats.totalWagered >= 0 ? '+' : ''}{stats.totalWon - stats.totalWagered}
+                  {stats.totalWon - stats.totalWagered >= 0 ? '+' : ''}{formatEuro(stats.totalWon - stats.totalWagered)}
                 </p>
               </div>
               <div>
@@ -291,7 +313,7 @@ export const SlotMachine = () => {
         <h3 className="text-lg md:text-xl font-bold text-foreground mb-4">Voittolinjat</h3>
         <div className="space-y-3">
           <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/30">
-            <span className="px-2 py-1 rounded bg-primary text-primary-foreground text-xs font-bold">1</span>
+            <span className="px-2 py-1 rounded bg-gradient-to-r from-secondary to-accent text-background text-xs font-bold shadow-[0_2px_10px_rgba(251,191,36,0.3)]">1</span>
             <span className="text-sm">━━━━━ Keskellä</span>
           </div>
           <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/30">
@@ -299,15 +321,15 @@ export const SlotMachine = () => {
             <span className="text-sm">━━━━━ Ylhäällä</span>
           </div>
           <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/30">
-            <span className="px-2 py-1 rounded bg-primary text-primary-foreground text-xs font-bold">3</span>
+            <span className="px-2 py-1 rounded bg-accent text-accent-foreground text-xs font-bold">3</span>
             <span className="text-sm">━━━━━ Alhaalla</span>
           </div>
           <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/30">
-            <span className="px-2 py-1 rounded bg-primary text-primary-foreground text-xs font-bold">4</span>
+            <span className="px-2 py-1 rounded bg-destructive text-destructive-foreground text-xs font-bold">4</span>
             <span className="text-sm">╲╱╲╱╲ V-muoto</span>
           </div>
           <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/30">
-            <span className="px-2 py-1 rounded bg-primary text-primary-foreground text-xs font-bold">5</span>
+            <span className="px-2 py-1 rounded bg-success text-success-foreground text-xs font-bold">5</span>
             <span className="text-sm">╱╲╱╲╱ ^-muoto</span>
           </div>
         </div>
@@ -315,18 +337,18 @@ export const SlotMachine = () => {
 
       {/* Payout Table */}
       <Card className="p-4 md:p-6 bg-card/50 border-border backdrop-blur-sm">
-        <h3 className="text-lg md:text-xl font-bold text-foreground mb-4">Voittotaulukko</h3>
+        <h3 className="text-lg md:text-xl font-bold text-foreground mb-4">Voittotaulukko (per linja)</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
           {[
-            { symbol: '7️⃣', payout: '100x (5)', multiplier: '10x (4)' },
-            { symbol: '💎', payout: '50x (5)', multiplier: '10x (4)' },
-            { symbol: '🔔', payout: '20x (5)', multiplier: '10x (4)' },
-            { symbol: '🍇', payout: '10x (5)', multiplier: '5x (4)' },
-            { symbol: '🍊', payout: '5x (5)', multiplier: '5x (4)' },
-            { symbol: '🍋', payout: '3x (5)', multiplier: '5x (4)' },
-            { symbol: '🍒', payout: '2x (5)', multiplier: '5x (4)' },
+            { symbol: '7️⃣', payout: '100× (5)', multiplier: '10× (4)' },
+            { symbol: '💎', payout: '50× (5)', multiplier: '10× (4)' },
+            { symbol: '🔔', payout: '20× (5)', multiplier: '10× (4)' },
+            { symbol: '🍇', payout: '10× (5)', multiplier: '5× (4)' },
+            { symbol: '🍊', payout: '5× (5)', multiplier: '5× (4)' },
+            { symbol: '🍋', payout: '3× (5)', multiplier: '5× (4)' },
+            { symbol: '🍒', payout: '2× (5)', multiplier: '5× (4)' },
           ].map((item) => (
-            <div key={item.symbol} className="text-center p-3 rounded-lg bg-muted/50">
+            <div key={item.symbol} className="text-center p-3 rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors">
               <div className="text-3xl mb-1">{item.symbol}</div>
               <div className="text-xs font-bold text-secondary">{item.payout}</div>
               <div className="text-xs text-muted-foreground">{item.multiplier}</div>
@@ -334,7 +356,7 @@ export const SlotMachine = () => {
           ))}
         </div>
         <p className="text-xs text-muted-foreground mt-4 text-center">
-          * 3 samaa symbolia: 1x panos • 4 samaa: 5-10x • 5 samaa: täysi voitto
+          * 3 samaa symbolia: 1× panos • 4 samaa: 5-10× • 5 samaa: täysi voitto
         </p>
       </Card>
     </div>
