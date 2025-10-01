@@ -1,12 +1,23 @@
 // Core game engine for slot machine with proper RNG implementation
+// 5 reels × 3 rows configuration (like Book of Ra / Kulta Jaska)
 
 export type Symbol = '🍒' | '🍋' | '🍊' | '🍇' | '💎' | '7️⃣' | '🔔';
 
+export type Reel = [Symbol, Symbol, Symbol]; // 3 symbols per reel
+export type ReelSet = [Reel, Reel, Reel, Reel, Reel]; // 5 reels
+
+export interface WinLine {
+  line: number;
+  symbols: Symbol[];
+  payout: number;
+  positions: number[];
+}
+
 export interface GameResult {
-  reels: [Symbol, Symbol, Symbol];
+  reels: ReelSet;
   winAmount: number;
   isWin: boolean;
-  winLine?: string;
+  winLines: WinLine[];
 }
 
 export interface GameStats {
@@ -57,52 +68,107 @@ function getRandomSymbol(): Symbol {
 }
 
 /**
- * Calculate win amount based on matching symbols
+ * Define win lines (classic 5-line pattern)
+ * Each line is defined by row indices for each of 5 reels
  */
-function calculateWin(reels: [Symbol, Symbol, Symbol], betAmount: number): { 
-  amount: number; 
-  line: string | undefined 
-} {
-  // Check for three of a kind
-  if (reels[0] === reels[1] && reels[1] === reels[2]) {
-    const symbolData = SYMBOLS.find(s => s.symbol === reels[0]);
+const WIN_LINES: number[][] = [
+  [1, 1, 1, 1, 1], // Line 1: Middle row
+  [0, 0, 0, 0, 0], // Line 2: Top row
+  [2, 2, 2, 2, 2], // Line 3: Bottom row
+  [0, 1, 2, 1, 0], // Line 4: V shape
+  [2, 1, 0, 1, 2], // Line 5: ^ shape
+];
+
+/**
+ * Get symbol at specific position in reel set
+ */
+function getSymbolAt(reels: ReelSet, reelIndex: number, rowIndex: number): Symbol {
+  return reels[reelIndex][rowIndex];
+}
+
+/**
+ * Check a single win line for matching symbols
+ */
+function checkWinLine(reels: ReelSet, linePattern: number[], betAmount: number): WinLine | null {
+  const symbols: Symbol[] = [];
+  
+  // Get symbols along this line
+  for (let reelIndex = 0; reelIndex < 5; reelIndex++) {
+    const rowIndex = linePattern[reelIndex];
+    symbols.push(getSymbolAt(reels, reelIndex, rowIndex));
+  }
+  
+  // Count consecutive matching symbols from left to right
+  const firstSymbol = symbols[0];
+  let matchCount = 1;
+  
+  for (let i = 1; i < symbols.length; i++) {
+    if (symbols[i] === firstSymbol) {
+      matchCount++;
+    } else {
+      break;
+    }
+  }
+  
+  // Need at least 3 matching symbols to win
+  if (matchCount >= 3) {
+    const symbolData = SYMBOLS.find(s => s.symbol === firstSymbol);
     if (symbolData) {
+      // Payout multiplier increases with more symbols
+      const multipliers = [0, 0, 1, 5, 10, symbolData.payout]; // 0, 0, 3-match, 4-match, 5-match
+      const payout = betAmount * multipliers[matchCount];
+      
       return {
-        amount: betAmount * symbolData.payout,
-        line: 'Three of a kind!'
+        line: WIN_LINES.indexOf(linePattern) + 1,
+        symbols: symbols.slice(0, matchCount),
+        payout,
+        positions: linePattern
       };
     }
   }
   
-  // Check for two of a kind (smaller payout)
-  if (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]) {
-    return {
-      amount: betAmount * 0.5,
-      line: 'Two of a kind'
-    };
-  }
-  
-  return { amount: 0, line: undefined };
+  return null;
 }
 
 /**
- * Main game spin function
+ * Calculate all wins for current reel configuration
+ */
+function calculateWins(reels: ReelSet, betAmount: number): WinLine[] {
+  const wins: WinLine[] = [];
+  
+  for (const linePattern of WIN_LINES) {
+    const win = checkWinLine(reels, linePattern, betAmount);
+    if (win) {
+      wins.push(win);
+    }
+  }
+  
+  return wins;
+}
+
+/**
+ * Main game spin function for 5x3 reel set
  * Returns game result with proper RNG
  */
 export function spinReels(betAmount: number): GameResult {
-  const reels: [Symbol, Symbol, Symbol] = [
-    getRandomSymbol(),
-    getRandomSymbol(),
-    getRandomSymbol()
+  // Generate 5 reels, each with 3 symbols
+  const reels: ReelSet = [
+    [getRandomSymbol(), getRandomSymbol(), getRandomSymbol()],
+    [getRandomSymbol(), getRandomSymbol(), getRandomSymbol()],
+    [getRandomSymbol(), getRandomSymbol(), getRandomSymbol()],
+    [getRandomSymbol(), getRandomSymbol(), getRandomSymbol()],
+    [getRandomSymbol(), getRandomSymbol(), getRandomSymbol()],
   ];
   
-  const { amount, line } = calculateWin(reels, betAmount);
+  // Check all win lines
+  const winLines = calculateWins(reels, betAmount);
+  const totalWin = winLines.reduce((sum, win) => sum + win.payout, 0);
   
   return {
     reels,
-    winAmount: amount,
-    isWin: amount > 0,
-    winLine: line
+    winAmount: totalWin,
+    isWin: totalWin > 0,
+    winLines
   };
 }
 
