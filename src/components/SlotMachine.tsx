@@ -1,308 +1,364 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { spinReels, type Symbol, type ReelSet, type GameStats, calculateRTP, getAllSymbols, type WinLine } from "@/lib/gameEngine";
 import { toast } from "sonner";
-import { spinReels, type GameResult, type ReelSet, type Symbol } from "@/lib/gameEngine";
+import { Coins, TrendingUp, BarChart3, Zap, Euro } from "lucide-react";
 import { WinLineOverlay } from "./WinLineOverlay";
-import { contributeToJackpots, checkJackpotWin, getJackpots } from "@/lib/jackpotSystem";
-import { ArrowLeft, Coins, Gift } from "lucide-react";
 
 const INITIAL_REELS: ReelSet = [
   ['🍒', '🍋', '🍊'],
-  ['🍇', '🔔', '💎'],
-  ['7️⃣', '🍒', '🍋'],
-  ['🍊', '🍇', '🔔'],
-  ['💎', '7️⃣', '🍒'],
+  ['🍋', '🍇', '🍒'],
+  ['🍊', '🍒', '🍋'],
+  ['🍇', '🍊', '💎'],
+  ['🍒', '🍋', '🍇'],
 ];
 
-interface SlotMachineProps {
-  balance: number;
-  onBalanceChange: (newBalance: number) => void;
-  onBack: () => void;
-}
-
-export const SlotMachine = ({ balance, onBalanceChange, onBack }: SlotMachineProps) => {
-  const [betAmount, setBetAmount] = useState(5);
+export const SlotMachine = () => {
   const [reels, setReels] = useState<ReelSet>(INITIAL_REELS);
-  const [lastResult, setLastResult] = useState<GameResult | null>(null);
+  const [balance, setBalance] = useState(100.00);
+  const [betAmount, setBetAmount] = useState(0.50);
   const [isSpinning, setIsSpinning] = useState(false);
-  const [totalSpins, setTotalSpins] = useState(0);
-  const [totalWagered, setTotalWagered] = useState(0);
-  const [totalWon, setTotalWon] = useState(0);
-  const [activeWinLines, setActiveWinLines] = useState<number[]>([]);
-  const [winningPositions, setWinningPositions] = useState<Set<string>>(new Set());
-  const [bonusSpins, setBonusSpins] = useState(0);
-  const [jackpots, setJackpots] = useState(getJackpots());
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setJackpots(getJackpots());
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
+  const [lastWin, setLastWin] = useState(0);
+  const [winningLines, setWinningLines] = useState<number[]>([]);
+  const [activeWinLines, setActiveWinLines] = useState<WinLine[]>([]);
+  const [stats, setStats] = useState<GameStats>({
+    totalSpins: 0,
+    totalWagered: 0,
+    totalWon: 0,
+    rtp: 0
+  });
 
   const formatEuro = (amount: number) => {
     return new Intl.NumberFormat('fi-FI', {
       style: 'currency',
       currency: 'EUR',
+      minimumFractionDigits: 2,
     }).format(amount);
   };
 
-  const handleSpin = () => {
-    if (isSpinning) return;
-    
-    const isBonusSpin = bonusSpins > 0;
-    
-    if (!isBonusSpin && balance < betAmount) {
+  const handleSpin = async () => {
+    if (balance < betAmount) {
       toast.error("Ei tarpeeksi saldoa!");
       return;
     }
 
-    setIsSpinning(true);
-    
-    if (!isBonusSpin) {
-      onBalanceChange(balance - betAmount);
-      contributeToJackpots(betAmount);
-    } else {
-      setBonusSpins(bonusSpins - 1);
-      toast.info(`🎁 Ilmaiskierros! ${bonusSpins - 1} jäljellä`);
-    }
-    
-    setActiveWinLines([]);
-    setWinningPositions(new Set());
+    if (isSpinning) return;
 
-    // Simulate spinning animation
-    const spinInterval = setInterval(() => {
+    setIsSpinning(true);
+    setBalance(prev => parseFloat((prev - betAmount).toFixed(2)));
+    setLastWin(0);
+    setWinningLines([]);
+    setActiveWinLines([]);
+
+    // Animate spinning with random symbols
+    const allSymbols = getAllSymbols();
+    const spinDuration = 2000;
+    const interval = setInterval(() => {
       const tempReels: ReelSet = [
-        ['🍒', '🍋', '🍊'],
-        ['🍇', '🔔', '💎'],
-        ['7️⃣', '🍒', '🍋'],
-        ['🍊', '🍇', '🔔'],
-        ['💎', '7️⃣', '🍒'],
+        [allSymbols[Math.floor(Math.random() * 7)] as Symbol, allSymbols[Math.floor(Math.random() * 7)] as Symbol, allSymbols[Math.floor(Math.random() * 7)] as Symbol],
+        [allSymbols[Math.floor(Math.random() * 7)] as Symbol, allSymbols[Math.floor(Math.random() * 7)] as Symbol, allSymbols[Math.floor(Math.random() * 7)] as Symbol],
+        [allSymbols[Math.floor(Math.random() * 7)] as Symbol, allSymbols[Math.floor(Math.random() * 7)] as Symbol, allSymbols[Math.floor(Math.random() * 7)] as Symbol],
+        [allSymbols[Math.floor(Math.random() * 7)] as Symbol, allSymbols[Math.floor(Math.random() * 7)] as Symbol, allSymbols[Math.floor(Math.random() * 7)] as Symbol],
+        [allSymbols[Math.floor(Math.random() * 7)] as Symbol, allSymbols[Math.floor(Math.random() * 7)] as Symbol, allSymbols[Math.floor(Math.random() * 7)] as Symbol],
       ];
       setReels(tempReels);
     }, 100);
 
     setTimeout(() => {
-      clearInterval(spinInterval);
+      clearInterval(interval);
+      
+      // Get actual result from game engine
       const result = spinReels(betAmount);
       setReels(result.reels);
-      setLastResult(result);
       
-      setTotalSpins(totalSpins + 1);
-      setTotalWagered(totalWagered + betAmount);
-
-      // Check for bonus trigger (3+ scatter symbols)
-      const scatterCount = result.reels.flat().filter(s => s === '💎').length;
-      if (scatterCount >= 3 && !isBonusSpin) {
-        const freeSpins = scatterCount === 3 ? 5 : scatterCount === 4 ? 10 : 15;
-        setBonusSpins(bonusSpins + freeSpins);
-        toast.success(`🎁 Bonus! ${freeSpins} ilmaiskierrosta!`, {
-          description: `${scatterCount} scatter-symbolia`
-        });
-      }
-
-      // Check for jackpot
-      if (!isBonusSpin) {
-        const jackpotWin = checkJackpotWin(betAmount);
-        if (jackpotWin) {
-          toast.success(`🎰 JACKPOT! ${formatEuro(jackpotWin.amount)}`, {
-            description: `${jackpotWin.type.toUpperCase()} Jackpot`,
-            duration: 10000,
-          });
-          onBalanceChange(balance + jackpotWin.amount);
-          setJackpots(getJackpots());
-        }
-      }
-
       if (result.isWin) {
-        onBalanceChange(balance + result.winAmount);
-        setTotalWon(totalWon + result.winAmount);
+        setBalance(prev => parseFloat((prev + result.winAmount).toFixed(2)));
+        setLastWin(result.winAmount);
+        setWinningLines(result.winLines.map(w => w.line));
+        setActiveWinLines(result.winLines);
         
-        const winLineNumbers = result.winLines.map(w => w.line);
-        setActiveWinLines(winLineNumbers);
+        const lineText = result.winLines.length === 1 
+          ? `Linja ${result.winLines[0].line}` 
+          : `${result.winLines.length} linjaa`;
         
-        const positions = new Set<string>();
-        result.winLines.forEach(winLine => {
-          winLine.positions.forEach((rowIndex, reelIndex) => {
-            positions.add(`${reelIndex}-${rowIndex}`);
-          });
+        toast.success(`🎉 ${lineText} - Voitit ${formatEuro(result.winAmount)}!`, {
+          duration: 4000,
         });
-        setWinningPositions(positions);
-
-        toast.success(`Voitto! ${formatEuro(result.winAmount)}`, {
-          description: `Voittolinjat: ${winLineNumbers.join(', ')}`
-        });
+      } else {
+        toast.info("Ei voittoa. Yritä uudelleen!");
       }
+
+      // Update stats
+      const newStats = {
+        totalSpins: stats.totalSpins + 1,
+        totalWagered: parseFloat((stats.totalWagered + betAmount).toFixed(2)),
+        totalWon: parseFloat((stats.totalWon + result.winAmount).toFixed(2)),
+        rtp: 0
+      };
+      newStats.rtp = calculateRTP(newStats);
+      setStats(newStats);
 
       setIsSpinning(false);
-    }, 2000);
+    }, spinDuration);
+  };
+
+  const adjustBet = (amount: number) => {
+    const newBet = Math.max(0.10, Math.min(10.00, parseFloat((betAmount + amount).toFixed(2))));
+    setBetAmount(newBet);
+  };
+
+  // Check if a symbol position is part of winning lines
+  const isWinningPosition = (reelIndex: number, rowIndex: number): boolean => {
+    return activeWinLines.some(winLine => {
+      const linePositions = winLine.positions;
+      return linePositions[reelIndex] === rowIndex;
+    });
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 py-12 px-4">
-      <div className="w-full max-w-6xl mx-auto space-y-6">
-        {/* Header with back button and balance */}
-        <div className="flex justify-between items-center">
-          <Button onClick={onBack} variant="ghost" size="lg">
-            <ArrowLeft className="mr-2" />
-            Takaisin
-          </Button>
-          <div className="flex items-center gap-2 text-2xl font-semibold">
-            <Coins className="w-6 h-6 text-accent" />
-            <span>{formatEuro(balance)}</span>
-          </div>
-        </div>
-
-        {/* Jackpot display */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-gradient-to-br from-amber-500/20 to-amber-600/10 p-4 rounded-lg border border-amber-500/30">
-            <div className="text-amber-300 text-sm">Mini Jackpot</div>
-            <div className="text-xl font-bold text-amber-200">{formatEuro(jackpots.miniJackpot)}</div>
-          </div>
-          <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/10 p-4 rounded-lg border border-orange-500/30">
-            <div className="text-orange-300 text-sm">Midi Jackpot</div>
-            <div className="text-xl font-bold text-orange-200">{formatEuro(jackpots.midiJackpot)}</div>
-          </div>
-          <div className="bg-gradient-to-br from-red-500/20 to-red-600/10 p-4 rounded-lg border border-red-500/30">
-            <div className="text-red-300 text-sm">Mega Jackpot</div>
-            <div className="text-xl font-bold text-red-200">{formatEuro(jackpots.megaJackpot)}</div>
-          </div>
-        </div>
-
-        <Card className="bg-gradient-to-br from-card/80 to-card/60 shadow-2xl border-2 border-primary/20">
-          <CardHeader className="text-center space-y-2">
-            <CardTitle className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
-              🎰 Slot Machine 🎰
-            </CardTitle>
-            <CardDescription className="text-lg">
-              5 kelaa • 3 riviä • 5 voittolinjaa
-            </CardDescription>
-            {bonusSpins > 0 && (
-              <div className="flex items-center justify-center gap-2 text-xl font-bold text-accent animate-pulse">
-                <Gift className="w-6 h-6" />
-                {bonusSpins} ilmaiskierrosta jäljellä!
-              </div>
-            )}
-          </CardHeader>
-
-          <CardContent className="space-y-6 p-4 md:p-8">
-            {/* Bet Controls */}
-            <div className="flex justify-center items-center gap-4 p-4 bg-background/50 rounded-lg border border-primary/10">
-              <span className="text-muted-foreground">Panos:</span>
-              <div className="flex gap-2">
-                {[1, 5, 10, 20, 50].map((amount) => (
-                  <Button
-                    key={amount}
-                    onClick={() => setBetAmount(amount)}
-                    variant={betAmount === amount ? "default" : "outline"}
-                    size="sm"
-                    className="min-w-[60px]"
-                  >
-                    {formatEuro(amount)}
-                  </Button>
-                ))}
-              </div>
+    <div className="w-full max-w-6xl mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
+      {/* Stats Bar */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+        <Card className="p-4 bg-card border-border backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Euro className="w-5 h-5 text-secondary" />
             </div>
-
-            {/* Reels Container with Win Lines */}
-            <div className="relative bg-gradient-to-br from-primary/5 to-accent/5 p-6 rounded-xl border-2 border-primary/20">
-              {/* Win line overlays */}
-              {activeWinLines.map((lineNum) => (
-                <WinLineOverlay key={lineNum} lineNumber={lineNum} isActive={true} />
-              ))}
-
-              <div className="flex justify-center gap-2">
-                {reels.map((reel, reelIndex) => (
-                  <div key={reelIndex} className="flex flex-col gap-2">
-                    {reel.map((symbol, rowIndex) => {
-                      const isWinning = winningPositions.has(`${reelIndex}-${rowIndex}`);
-                      return (
-                        <div
-                          key={`${reelIndex}-${rowIndex}`}
-                          className={`
-                            w-20 h-20 flex items-center justify-center text-5xl
-                            bg-gradient-to-br from-background to-background/80
-                            border-2 rounded-xl shadow-lg transition-all duration-300
-                            ${isSpinning ? 'animate-pulse border-primary/50' : 'border-border'}
-                            ${isWinning && !isSpinning ? 'ring-4 ring-accent border-accent shadow-[0_0_20px_rgba(251,191,36,0.6)] animate-pulse' : ''}
-                          `}
-                        >
-                          {symbol}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Saldo</p>
+              <p className="text-2xl font-bold text-foreground">{formatEuro(balance)}</p>
             </div>
+          </div>
+        </Card>
 
-            {/* Spin Button */}
-            <Button
-              onClick={handleSpin}
-              disabled={isSpinning || (bonusSpins === 0 && balance < betAmount)}
-              size="lg"
-              className="w-full md:w-auto px-12 py-6 text-xl font-bold"
-            >
-              {isSpinning ? "Pyörii..." : bonusSpins > 0 ? "Ilmaiskierros! 🎁" : `Pyöräytä (${formatEuro(betAmount)})`}
-            </Button>
-
-            {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-background/50 rounded-lg border border-primary/10">
-              <div className="text-center">
-                <div className="text-sm text-muted-foreground">Pyöräytykset</div>
-                <div className="text-xl font-bold">{totalSpins}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm text-muted-foreground">Panostettu</div>
-                <div className="text-xl font-bold">{formatEuro(totalWagered)}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm text-muted-foreground">Voitettu</div>
-                <div className="text-xl font-bold text-accent">{formatEuro(totalWon)}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm text-muted-foreground">RTP</div>
-                <div className="text-xl font-bold">
-                  {totalWagered > 0 ? `${((totalWon / totalWagered) * 100).toFixed(1)}%` : '0%'}
-                </div>
-              </div>
+        <Card className="p-4 bg-card border-border backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-success/10">
+              <TrendingUp className="w-5 h-5 text-success" />
             </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Voitettu</p>
+              <p className="text-2xl font-bold text-success">{formatEuro(stats.totalWon)}</p>
+            </div>
+          </div>
+        </Card>
 
-            {/* Payout Table */}
-            <Card className="bg-background/30">
-              <CardHeader>
-                <CardTitle className="text-xl">Voittotaulukko</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                  {[
-                    { symbol: '7️⃣', name: 'Seiska', payout: 100 },
-                    { symbol: '💎', name: 'Scatter/Bonus', payout: 50 },
-                    { symbol: '🔔', name: 'Kello', payout: 20 },
-                    { symbol: '🍇', name: 'Viinirypäleet', payout: 10 },
-                    { symbol: '🍊', name: 'Appelsiini', payout: 5 },
-                    { symbol: '🍋', name: 'Sitruuna', payout: 3 },
-                    { symbol: '🍒', name: 'Kirsikka', payout: 2 },
-                  ].map((item) => (
-                    <div key={item.symbol} className="flex items-center justify-between p-2 rounded bg-background/50">
-                      <span className="text-2xl">{item.symbol}</span>
-                      <div className="text-right">
-                        <div className="text-xs text-muted-foreground">{item.name}</div>
-                        <div className="font-bold">×{item.payout}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-4 text-xs text-muted-foreground space-y-1 text-center">
-                  <p>3 samaa: ×1 • 4 samaa: ×5 • 5 samaa: ×kerroin</p>
-                  <p className="text-accent">💎 3+ Scatteria = Ilmaiskierrokset!</p>
-                </div>
-              </CardContent>
-            </Card>
-          </CardContent>
+        <Card className="p-4 bg-card border-border backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-accent/10">
+              <BarChart3 className="w-5 h-5 text-accent" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">RTP</p>
+              <p className="text-2xl font-bold text-accent">
+                {stats.totalSpins > 0 ? `${stats.rtp.toFixed(1)}%` : '-'}
+              </p>
+            </div>
+          </div>
         </Card>
       </div>
+
+      {/* Slot Machine */}
+      <Card className="p-4 md:p-8 bg-gradient-to-br from-card via-card to-card/50 border-2 border-primary/30 shadow-[0_0_30px_rgba(168,85,247,0.2)]">
+        <div className="space-y-4 md:space-y-6">
+          {/* Title */}
+          <div className="text-center">
+            <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-secondary via-primary to-accent bg-clip-text text-transparent">
+              5 Kelaa × 3 Riviä
+            </h1>
+            <p className="text-muted-foreground mt-2">Classic Slot Machine</p>
+          </div>
+
+          {/* Win Lines Indicator */}
+          <div className="flex justify-center gap-2 flex-wrap">
+            {[1, 2, 3, 4, 5].map((line) => (
+              <div
+                key={line}
+                className={`
+                  px-3 py-1 rounded-full text-xs font-bold transition-all
+                  ${winningLines.includes(line)
+                    ? 'bg-secondary text-background animate-pulse shadow-[0_0_10px_rgba(251,191,36,0.5)]'
+                    : 'bg-muted/30 text-muted-foreground'
+                  }
+                `}
+              >
+                Linja {line}
+              </div>
+            ))}
+          </div>
+
+          {/* Reels - 5x3 Grid with Win Line Overlays */}
+          <div className="relative">
+            {/* Win line visual overlays */}
+            {[1, 2, 3, 4, 5].map((lineNum) => (
+              <WinLineOverlay
+                key={lineNum}
+                lineNumber={lineNum}
+                isActive={winningLines.includes(lineNum)}
+              />
+            ))}
+
+            <div className="flex justify-center gap-1 md:gap-2">
+              {reels.map((reel, reelIndex) => (
+                <div key={reelIndex} className="flex flex-col gap-1 md:gap-2">
+                  {reel.map((symbol, rowIndex) => {
+                    const isWinning = isWinningPosition(reelIndex, rowIndex);
+                    return (
+                      <div
+                        key={`${reelIndex}-${rowIndex}`}
+                        className={`
+                          w-14 h-14 md:w-20 md:h-20 flex items-center justify-center
+                          text-3xl md:text-5xl
+                          bg-gradient-to-br from-muted to-muted/50
+                          border-2 rounded-lg md:rounded-xl
+                          shadow-lg
+                          transition-all duration-300
+                          ${isSpinning ? 'animate-pulse border-border' : ''}
+                          ${isWinning && !isSpinning 
+                            ? 'ring-4 ring-secondary border-secondary animate-pulse-win shadow-[0_0_20px_rgba(251,191,36,0.6)]' 
+                            : 'border-border'
+                          }
+                        `}
+                      >
+                        {symbol}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Last Win Display */}
+          {lastWin > 0 && (
+            <div className="text-center animate-fade-in">
+              <div className="inline-flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 bg-gradient-to-r from-secondary to-accent rounded-full shadow-[0_0_30px_rgba(251,191,36,0.5)]">
+                <Zap className="w-5 h-5 md:w-6 md:h-6 text-background animate-pulse" />
+                <p className="text-xl md:text-2xl font-bold text-background">
+                  VOITTO: {formatEuro(lastWin)}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Bet Controls */}
+          <div className="flex items-center justify-center gap-3 md:gap-4">
+            <Button
+              onClick={() => adjustBet(-0.25)}
+              variant="outline"
+              size="lg"
+              disabled={isSpinning}
+              className="border-primary/50 hover:border-primary hover:bg-primary/10"
+            >
+              -0.25€
+            </Button>
+            <div className="text-center min-w-[100px] md:min-w-[120px]">
+              <p className="text-xs md:text-sm text-muted-foreground">Panos</p>
+              <p className="text-2xl md:text-3xl font-bold text-secondary">{formatEuro(betAmount)}</p>
+            </div>
+            <Button
+              onClick={() => adjustBet(0.25)}
+              variant="outline"
+              size="lg"
+              disabled={isSpinning}
+              className="border-primary/50 hover:border-primary hover:bg-primary/10"
+            >
+              +0.25€
+            </Button>
+          </div>
+
+          {/* Spin Button */}
+          <div className="flex justify-center">
+            <Button
+              onClick={handleSpin}
+              disabled={isSpinning || balance < betAmount}
+              size="lg"
+              className="w-full md:w-64 h-14 md:h-16 text-xl md:text-2xl font-bold bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-all shadow-[0_0_20px_rgba(168,85,247,0.5)] disabled:opacity-50"
+            >
+              {isSpinning ? 'PYÖRII...' : 'PYÖRÄYTÄ'}
+            </Button>
+          </div>
+
+          {/* Game Stats */}
+          <div className="pt-4 md:pt-6 border-t border-border">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 text-center">
+              <div>
+                <p className="text-xs md:text-sm text-muted-foreground">Pyöräytykset</p>
+                <p className="text-lg md:text-xl font-bold text-foreground">{stats.totalSpins}</p>
+              </div>
+              <div>
+                <p className="text-xs md:text-sm text-muted-foreground">Panostettu</p>
+                <p className="text-lg md:text-xl font-bold text-foreground">{formatEuro(stats.totalWagered)}</p>
+              </div>
+              <div>
+                <p className="text-xs md:text-sm text-muted-foreground">Voitto/Tappio</p>
+                <p className={`text-lg md:text-xl font-bold ${stats.totalWon - stats.totalWagered >= 0 ? 'text-success' : 'text-destructive'}`}>
+                  {stats.totalWon - stats.totalWagered >= 0 ? '+' : ''}{formatEuro(stats.totalWon - stats.totalWagered)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs md:text-sm text-muted-foreground">Voittoprosentti</p>
+                <p className="text-lg md:text-xl font-bold text-accent">
+                  {stats.totalSpins > 0 ? ((stats.totalWon / stats.totalWagered * 100) || 0).toFixed(0) : 0}%
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Win Lines Guide */}
+      <Card className="p-4 md:p-6 bg-card/50 border-border backdrop-blur-sm">
+        <h3 className="text-lg md:text-xl font-bold text-foreground mb-4">Voittolinjat</h3>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/30">
+            <span className="px-2 py-1 rounded bg-gradient-to-r from-secondary to-accent text-background text-xs font-bold shadow-[0_2px_10px_rgba(251,191,36,0.3)]">1</span>
+            <span className="text-sm">━━━━━ Keskellä</span>
+          </div>
+          <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/30">
+            <span className="px-2 py-1 rounded bg-primary text-primary-foreground text-xs font-bold">2</span>
+            <span className="text-sm">━━━━━ Ylhäällä</span>
+          </div>
+          <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/30">
+            <span className="px-2 py-1 rounded bg-accent text-accent-foreground text-xs font-bold">3</span>
+            <span className="text-sm">━━━━━ Alhaalla</span>
+          </div>
+          <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/30">
+            <span className="px-2 py-1 rounded bg-destructive text-destructive-foreground text-xs font-bold">4</span>
+            <span className="text-sm">╲╱╲╱╲ V-muoto</span>
+          </div>
+          <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/30">
+            <span className="px-2 py-1 rounded bg-success text-success-foreground text-xs font-bold">5</span>
+            <span className="text-sm">╱╲╱╲╱ ^-muoto</span>
+          </div>
+        </div>
+      </Card>
+
+      {/* Payout Table */}
+      <Card className="p-4 md:p-6 bg-card/50 border-border backdrop-blur-sm">
+        <h3 className="text-lg md:text-xl font-bold text-foreground mb-4">Voittotaulukko (per linja)</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+          {[
+            { symbol: '7️⃣', payout: '100× (5)', multiplier: '10× (4)' },
+            { symbol: '💎', payout: '50× (5)', multiplier: '10× (4)' },
+            { symbol: '🔔', payout: '20× (5)', multiplier: '10× (4)' },
+            { symbol: '🍇', payout: '10× (5)', multiplier: '5× (4)' },
+            { symbol: '🍊', payout: '5× (5)', multiplier: '5× (4)' },
+            { symbol: '🍋', payout: '3× (5)', multiplier: '5× (4)' },
+            { symbol: '🍒', payout: '2× (5)', multiplier: '5× (4)' },
+          ].map((item) => (
+            <div key={item.symbol} className="text-center p-3 rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors">
+              <div className="text-3xl mb-1">{item.symbol}</div>
+              <div className="text-xs font-bold text-secondary">{item.payout}</div>
+              <div className="text-xs text-muted-foreground">{item.multiplier}</div>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground mt-4 text-center">
+          * 3 samaa symbolia: 1× panos • 4 samaa: 5-10× • 5 samaa: täysi voitto
+        </p>
+      </Card>
     </div>
   );
 };
